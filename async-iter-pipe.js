@@ -123,6 +123,14 @@ export class AsyncIterPipe{
 			this.writes.push( vals[ i])
 		}
 	}
+	async produceFrom( iterable, close= false){
+		for await( let item of iterable|| []){
+			this.produce( item)
+		}
+		if( close){
+			this.return( close)
+		}
+	}
 
 	_nextReturn( fn, value, done= false){
 		value= fn? fn(): value
