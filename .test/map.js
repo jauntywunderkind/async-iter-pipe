@@ -59,7 +59,7 @@ tape( "map can drop", async function( t){
 		return pass? x: AGT.DROP
 	}
 	const agt= new AGT({ map})
-	await agt.produceFrom([ 0, 1, 2, 3, 4, 5])
+	agt.produce(...[ 0, 1, 2, 3, 4, 5])
 	agt.end()
 
 	const
@@ -83,7 +83,7 @@ tape.skip( "map can produce additional values", async function( t){
 		return x* 2
 	}
 	const agt= new AGT({ map})
-	await agt.produceFrom([ 1, 4, 16])
+	agt.produce(...[ 1, 4, 16])
 	agt.end()
 
 	const
