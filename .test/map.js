@@ -49,7 +49,7 @@ tape( "map read then produce", async function( t){
 	t.end()
 })
 
-tape( "map can drop", async function( t){
+tape( "map can drop, produce then read", async function( t){
 	t.plan( 4)
 
 	// filter which drops every other
@@ -74,10 +74,35 @@ tape( "map can drop", async function( t){
 	t.end()
 })
 
+tape( "map can drop, read then produce", async function( t){
+	t.plan( 3)
+
+	// filter which drops every other
+	let count= -1
+	function map( x){
+		const pass= count++% 2
+		return pass? x: AGT.DROP
+	}
+	const
+	  agt= new AGT({ map}),
+	  next1= agt.next(),
+	  next2= agt.next(),
+	  next3= agt.next()
+	agt.produce(...[ 0, 1, 2, 3, 4, 5])
+	agt.end()
+
+	t.equal( (await next1).value, 0)
+	t.equal( (await next2).value, 2)
+	t.equal( (await next3).value, 4)
+	t.end()
+})
+
+
+
 tape( "map can produce additional values", async function( t){
 	t.plan( 7)
 
-	// filter which drops every other
+	// produce two values for every value
 	function map( x){
 		this.produce( x)
 		return x* 2
