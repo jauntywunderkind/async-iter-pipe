@@ -74,8 +74,8 @@ tape( "map can drop", async function( t){
 	t.end()
 })
 
-tape.skip( "map can produce additional values", async function( t){
-	t.plan( 4)
+tape( "map can produce additional values", async function( t){
+	t.plan( 7)
 
 	// filter which drops every other
 	function map( x){

@@ -93,16 +93,22 @@ export class AsyncIterPipe{
 		if( this.reads){
 			let readPos= 0
 			for( ; valPos< vals.length&& readPos< this.reads.length; ++valPos){
-				const mapped= this.map? this.map( vals[ valPos]): vals[ valPos]
-				if( mapped=== Drop){
-					continue
-				}
-				if( readPos>= this.reads.length){
-					break
+				let val= vals[ valPos]
+				if( this.map&& !this.producing){
+					this.producing= true
+					val= this.map( val)
+					this.producing= false
+					if( val=== Drop){
+						continue
+					}
+					if( readPos>= this.reads.length){
+						// map could have produced more values so recheck
+						break
+					}
 				}
 				// resolve
 				++this.writeCount
-				this.reads[ readPos++].resolve( mapped)
+				this.reads[ readPos++].resolve( val)
 			}
 			// remove these now satisfied reads
 			if( valPos> 0){
@@ -137,12 +143,17 @@ export class AsyncIterPipe{
 
 		// save remainder into outstanding writes
 		for( ; valPos< vals.length; ++valPos){
-			const mapped= this.map? this.map( vals[ valPos]): vals[ valPos]
-			if( mapped=== Drop){
-				continue
+			let val= vals[ valPos]
+			if( this.map&& !this.producing){
+				this.producing= true
+				val= this.map( vals[ valPos])
+				this.producing= false
+				if( val=== Drop){
+					continue
+				}
 			}
 			++this.writeCount
-			this.writes.push( mapped)
+			this.writes.push( val)
 		}
 	}
 	async produceFrom( iterable, close= false){
