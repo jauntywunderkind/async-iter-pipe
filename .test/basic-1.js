@@ -3,7 +3,7 @@
 
 import tape from "tape"
 import Immediate from "p-immediate"
-import AGT, { AsyncIterThunkDoneError} from ".."
+import AGT, { AsyncIterPipeDoneError} from ".."
 
 tape( "produce then consume", async function( t){
 	t.plan( 2)
@@ -98,12 +98,12 @@ tape( "return then produce fails", async function( t){
 		agt.produce( 678)
 		t.fail( "unexpected success of produce")
 	}catch( ex){
-		t.ok( ex instanceof AsyncIterThunkDoneError, "got expected AsyncIterThunkDoneError from produce")
+		t.ok( ex instanceof AsyncIterPipeDoneError, "got expected AsyncIterPipeDoneError from produce")
 		t.equal( agt.queueCount, 0, "produce did not change queueCount")
 	}
 
 	nextReturned.catch( function( ex){
-		t.ok( ex instanceof AsyncIterThunkDoneError, "got expected AsyncIterThunkDoneError from in flight AsyncIterationResult")
+		t.ok( ex instanceof AsyncIterPipeDoneError, "got expected AsyncIterPipeDoneError from in flight AsyncIterationResult")
 		t.end()
 	})
 })

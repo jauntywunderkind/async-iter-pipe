@@ -10,7 +10,11 @@ export class AsyncIterPipeDoneError extends Error{
 
 const resolved= Promise.resolve()
 
+export const Drop= Symbol.for( "async-iter-pipe:drop")
+
 export class AsyncIterPipe{
+	static DROP = Drop
+
 	// note: falsy values commented out
 
 	// state
@@ -20,6 +24,7 @@ export class AsyncIterPipe{
 	writes= [] // writes from produce awaiting readers
 	//ending= false // wrapping up but not done yet
 	tail= resolved
+	//map= null
 
 	// stored
 	onAbort= null
@@ -43,7 +48,10 @@ export class AsyncIterPipe{
 				this.tail= opts.tail|| null
 			}
 			if( opts.strictAsync){
-				this.strictAsync= resolved
+				this.strictAsync= true
+			}
+			if( opts.map){
+				this.map= opts.map
 			}
 		}
 	}
@@ -82,18 +90,23 @@ export class AsyncIterPipe{
 		++this.writeCount
 
 		// resolve as many outstanding reads as we can
-		let i= 0
+		let valPos= 0
 		if( this.reads){
-			for( ; i< vals.length&& i< this.reads.length; ++i){
+			let readPos= 0
+			for( ; valPos< vals.length&& readPos< this.reads.length; ++valPos){
+				const mapped= this.map? this.map( vals[ valPos]): vals[ valPos]
+				if( mapped=== Drop){
+					continue
+				}
 				// resolve
-				this.reads[ i].resolve( vals[ i])
+				this.reads[ readPos++].resolve( mapped)
 			}
 			// remove these now satisfied reads
-			if( i> 0){
-				this.reads.splice( 0, i)
+			if( valPos> 0){
+				this.reads.splice( 0, valPos)
 			}
 
-			if( i=== vals.length){
+			if( valPos=== vals.length){
 				// vals are gone!
 				if(( this.done|| this.ending)&& this.reads.length=== 0){
 					// cleanup, no more reads coming
@@ -101,7 +114,8 @@ export class AsyncIterPipe{
 					this.done= true
 					if( this.ending){
 						Promise.resolve().then(()=> {
-							this.value= delete this.endingValue
+							this.value= this.endingValue
+							delete this.endingValue
 							this.ending.resolve({
 								done: true,
 								value: this.value
@@ -119,8 +133,12 @@ export class AsyncIterPipe{
 		}
 
 		// save remainder into outstanding writes
-		for( ; i< vals.length; ++i){
-			this.writes.push( vals[ i])
+		for( ; valPos< vals.length; ++valPos){
+			const mapped= this.map? this.map( vals[ valPos]): vals[ valPos]
+			if( mapped=== Drop){
+				continue
+			}
+			this.writes.push( mapped)
 		}
 	}
 	async produceFrom( iterable, close= false){
