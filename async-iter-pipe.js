@@ -98,6 +98,9 @@ export class AsyncIterPipe{
 				if( mapped=== Drop){
 					continue
 				}
+				if( readPos>= this.reads.length){
+					break
+				}
 				// resolve
 				this.reads[ readPos++].resolve( mapped)
 			}
