@@ -87,7 +87,6 @@ export class AsyncIterPipe{
 		if( this.done&& !this.reads){
 			throw new AsyncIterPipeDoneError( this)
 		}
-		++this.writeCount
 
 		// resolve as many outstanding reads as we can
 		let valPos= 0
@@ -102,6 +101,7 @@ export class AsyncIterPipe{
 					break
 				}
 				// resolve
+				++this.writeCount
 				this.reads[ readPos++].resolve( mapped)
 			}
 			// remove these now satisfied reads
@@ -141,6 +141,7 @@ export class AsyncIterPipe{
 			if( mapped=== Drop){
 				continue
 			}
+			++this.writeCount
 			this.writes.push( mapped)
 		}
 	}
