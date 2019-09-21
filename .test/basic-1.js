@@ -3,18 +3,18 @@
 
 import tape from "tape"
 import Immediate from "p-immediate"
-import AGT, { AsyncIterPipeDoneError} from ".."
+import AsyncIterPipe, { AsyncIterPipeDoneError} from ".."
 
 tape( "produce then consume", async function( t){
 	t.plan( 2)
-	const agt= new AGT()
-	agt.produce( 111)
-	agt.produce( 222)
+	const aip= new AsyncIterPipe()
+	aip.produce( 111)
+	aip.produce( 222)
 
 	const
-	  next1= agt.next(),
-	  next2= agt.next(),
-	  next3= agt.next()
+	  next1= aip.next(),
+	  next2= aip.next(),
+	  next3= aip.next()
 	t.equal( (await next1).value, 111, "value 111 was eventually produced")
 	t.equal( (await next2).value, 222, "value 222 was eventually produced")
 	// TODO: sleep, validate 3 not resolved
@@ -23,24 +23,24 @@ tape( "produce then consume", async function( t){
 
 tape( "consume then produce", async function( t){
 	t.plan( 7)
-	const agt= new AGT()
+	const aip= new AsyncIterPipe()
 	let i= 0
-	agt.next().then( cur=> {
+	aip.next().then( cur=> {
 		t.equal( cur.value, 111, "produced first value, 111")
 		t.equal( i++, 0, "produced first value")
 	})
-	agt.next().then( cur=> {
+	aip.next().then( cur=> {
 		t.equal( i++, 1, "produced second value, 222")
 		t.equal( cur.value, 222, "produced second value")
 	})
 	await Immediate()
 	t.equal( i, 0, "saw nothing")
 
-	agt.produce( 111)
+	aip.produce( 111)
 	await Immediate()
 	t.equal( i, 1, "saw first value")
 
-	agt.produce( 222)
+	aip.produce( 222)
 	await Immediate()
 	t.equal( i, 2, "saw second value")
 	t.end()
@@ -48,13 +48,13 @@ tape( "consume then produce", async function( t){
 
 tape( "consume then end", async function( t){
 	t.plan( 6)
-	const agt= new AGT()
-	agt.produce( 111)
-	let next111= agt.next() // consume, successfully
-	let next222= agt.next() // consume, successfully
-	agt.produce( 222)
-	agt.return( 42) // end
-	let nextReturned= agt.next() // consume, but had ended
+	const aip= new AsyncIterPipe()
+	aip.produce( 111)
+	let next111= aip.next() // consume, successfully
+	let next222= aip.next() // consume, successfully
+	aip.produce( 222)
+	aip.return( 42) // end
+	let nextReturned= aip.next() // consume, but had ended
 
 	next111= await next111
 	t.equal( next111.value, 111, "got first value")
@@ -72,14 +72,14 @@ tape( "consume then end", async function( t){
 
 tape( "return then consume fails", async function( t){
 	t.plan( 4)
-	const agt= new AGT()
-	agt.produce( 111) // gets dropped by return
-	t.equal( agt.queueCount, 1, "one write queued")
+	const aip= new AsyncIterPipe()
+	aip.produce( 111) // gets dropped by return
+	t.equal( aip.queueCount, 1, "one write queued")
 
 
-	agt.return( 42) // end
-	t.equal( agt.queueCount, 0, "queued write dropped")
-	let nextReturned= agt.next() // going to fail
+	aip.return( 42) // end
+	t.equal( aip.queueCount, 0, "queued write dropped")
+	let nextReturned= aip.next() // going to fail
 	nextReturned= await nextReturned
 	t.equal( nextReturned.value, 42, "got return value")
 	t.equal( nextReturned.done, true, "second was done")
@@ -88,18 +88,18 @@ tape( "return then consume fails", async function( t){
 
 tape( "return then produce fails", async function( t){
 	t.plan( 5)
-	const agt= new AGT()
-	let nextReturned= agt.next()
-	t.equal( agt.queueCount, -1, "queued read")
-	agt.return( 42) // end
-	t.equal( agt.queueCount, 0, "dropped queued read")
+	const aip= new AsyncIterPipe()
+	let nextReturned= aip.next()
+	t.equal( aip.queueCount, -1, "queued read")
+	aip.return( 42) // end
+	t.equal( aip.queueCount, 0, "dropped queued read")
 
 	try{
-		agt.produce( 678)
+		aip.produce( 678)
 		t.fail( "unexpected success of produce")
 	}catch( ex){
 		t.ok( ex instanceof AsyncIterPipeDoneError, "got expected AsyncIterPipeDoneError from produce")
-		t.equal( agt.queueCount, 0, "produce did not change queueCount")
+		t.equal( aip.queueCount, 0, "produce did not change queueCount")
 	}
 
 	nextReturned.catch( function( ex){
@@ -110,11 +110,11 @@ tape( "return then produce fails", async function( t){
 
 tape( "produceAfterReturn", async function( t){
 	t.plan( 4)
-	const agt= new AGT({ produceAfterReturn: true})
+	const aip= new AsyncIterPipe({ produceAfterReturn: true})
 	let
-	  next1= agt.next(),
-	  return1= agt.return( 42)
-	agt.produce( 111)
+	  next1= aip.next(),
+	  return1= aip.return( 42)
+	aip.produce( 111)
 
 	next1= await next1
 	t.equal( next1.value, 111, "got 111")
@@ -128,15 +128,15 @@ tape( "produceAfterReturn", async function( t){
 
 tape( "count", async function( t){
 	t.plan( 2)
-	const agt= new AGT()
+	const aip= new AsyncIterPipe()
 	let
-	  read1= agt.next(),
-	  read2= agt.next()
-	t.equal( agt.queueCount, -2, "has two outstanding read requests")
-	agt.produce( 1)
-	agt.produce( 2)
-	agt.produce( 3)
-	agt.produce( 4)
-	t.equal( agt.queueCount, 2, "has two queued writes")
+	  read1= aip.next(),
+	  read2= aip.next()
+	t.equal( aip.queueCount, -2, "has two outstanding read requests")
+	aip.produce( 1)
+	aip.produce( 2)
+	aip.produce( 3)
+	aip.produce( 4)
+	t.equal( aip.queueCount, 2, "has two queued writes")
 	t.end()
 })
