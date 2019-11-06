@@ -12,8 +12,15 @@ const resolved= Promise.resolve()
 
 export const Drop= Symbol.for( "async-iter-pipe:drop")
 
+const ended= Symbol.for( "async-iter-pipe:ended")
+
+let n= 0
+
 export class AsyncIterPipe{
 	static DROP = Drop
+	static get [ Symbol.species](){
+		return Promise
+	}
 
 	// note: falsy values commented out
 
@@ -29,14 +36,17 @@ export class AsyncIterPipe{
 	// stored
 	onAbort= null
 
+
+	readCount= 0
+	writecont= 0;
+	[ ended]= Defer()
+
 	// modes
 	//produceAfterReturn= false
 	//strictAsync= false
 
 	constructor( opts){
 		this.onAbort= ex=> this.throw( ex)
-		this.readCount= 0
-		this.writeCount= 0
 		if( opts){
 			if( opts.signal){
 				this.signal= opts.signal
@@ -83,6 +93,7 @@ export class AsyncIterPipe{
 	* Fill any outstanding reads, then save further produced values
 	*/
 	produce( ...vals){
+		console.log( "pipe-produce", this.done, this.reads)
 		// cannot produce if done
 		if( this.done&& !this.reads){
 			throw new AsyncIterPipeDoneError( this)
@@ -122,16 +133,17 @@ export class AsyncIterPipe{
 					delete this.reads
 					this.done= true
 					if( this.ending){
-						Promise.resolve().then(()=> {
+						queueMicrotask(()=> {
 							this.value= this.endingValue
 							delete this.endingValue
-							this.ending.resolve({
-								done: true,
-								value: this.value
-							})
+							if( this.ending&& this.ending.resolve){
+								this.ending.resolve({
+									done: true,
+									value: this.value
+								})
+							}
 						})
 					}
-					
 				}
 				return
 			}
@@ -157,6 +169,7 @@ export class AsyncIterPipe{
 		}
 	}
 	async produceFrom( iterable, close= false){
+		console.log( "pipe-produceFrom")
 		for await( let item of iterable|| []){
 			this.produce( item)
 		}
@@ -166,9 +179,11 @@ export class AsyncIterPipe{
 	}
 
 	_nextReturn( fn, value, done= false){
+		console.log( "pipe-_nextReturn")
 		value= fn? fn(): value
 		// synchronous shortcut: no tracking, no resolving needed
 		if( !this.tail&& !(value&& value.then)){
+			console.log( "pipe-no-tail", value)
 			this.value= value
 			const
 			  iter0= { done, value},
@@ -183,34 +198,45 @@ export class AsyncIterPipe{
 		//   perhaps context-runner style resolution
 		const
 		  oldTail= this.tail,
-		  got= (async ()=> { //IIFE
+		  got= (async oldTail=> { //IIFE
+			console.log("pipe-got-hello")
 			value= await value
+			console.log("pipe-got-value")
 			if( oldTail){
+				console.log("pipe-got-tail")
 				await oldTail
 			}
+				console.log("pipe-got-returning")
 			this.value= value
 			return {
 				done,
 				value
 			}
-		  })()
+		  })( oldTail)
 		// set tail if we're doing that
 		if( this.tail){
 			this.tail= got
+			console.log("WAIT", ++n)
+			this.tail.then(x=> console.log("FOUND", n, x))
 		}
+		console.log( "pipe-got-returns")
 		return got
 	}
 	next(){
+		console.log( "pipe-next")
 		++this.readCount
 
 		// use already produced writes
 		// (if ending, flush these out!)
-		if( !this.done&& this.writes&& this.writes.length){
+		const hadWrites= this.writes&& this.writes.length
+		if( !this.done&& hadWrites){
+			console.log( "pipe-next-had-writes")
 			return this._nextReturn( null, this.writes.shift())
 		}
 
 		// already done, return so
 		if( this.done|| this.ending){
+			console.log( "pipe-next-already-done")
 			// done
 			return this._nextReturn(()=> this.value, null, true)
 		}
@@ -218,65 +244,59 @@ export class AsyncIterPipe{
 		// queue up a new pending read
 		let pendingRead= Defer()
 		this.reads.push( pendingRead)
+		console.log( "pipe-next-reads-"+ this.reads.length)
 		return this._nextReturn( null, pendingRead.promise)
 	}
-	/**
-	* Signify that no further values will be forthcoming
-	*/
-	end(){
-		this.ending= true
-		return this.tail|| Promise.resolve()
-	}
-	/**
-	* Stop allowing produce, and stop returning already produced values.
-	* If 'produceAfterReturn' mode is set, produce will continue to fulfill already issues reads.
-	*/
-	return( value){
+
+	_end( value, err){
+		const reads= this.reads
+		delete this.reads
 		delete this.writes
+		this.done= true
+		this.value= value
+		this[ ended].resolve()
 
-		if( this.reads&& this.reads.length=== 0){
-			// clear already drained
-			delete this.reads
-		}
-
-		if( this.reads){
-			if( !this.produceAfterReturn){
-				const err= new AsyncIterPipeDoneError( this)
-				for( let read of this.reads|| []){
-					read.reject( err)
-				}
-				delete this.reads
-				this.done= true
-				this.value= value
-			}else{
+		if( reads&& reads.length!== 0){
+			// special mode that doesn't terminate immediately
+			if( this.produceAfterReturn){
 				this.ending= Defer()
 				this.endingValue= value
 				return this.ending.promise
+			// fail any existing reads
+			}else{
+				const err= new AsyncIterPipeDoneError( this)
+				for( let read of reads|| []){
+					read.reject( err)
+				}
 			}
-		}else{
-			this.done= true
-			this.value= value
 		}
 		return {
 			done: true,
 			value
 		}
 	}
+
+	/**
+	* Stop allowing produce, and stop returning already produced values.
+	* If 'produceAfterReturn' mode is set, produce will continue to fulfill already issues reads.
+	*/
+	return( value){
+		return this._end( value)
+	}
 	/**
 	* Immediately become done and reject and pending reads.
 	*/
 	throw( ex){
-		if( !this.done){
-			for( let read of this.reads|| []){
-				read.reject( ex)
-			}
-			delete this.reads
-			delete this.writes
-		}
-		throw ex
+		return this._end( undefined, ex)
 	}
 	[ Symbol.iterator](){
 		return this
+	}
+	[ Symbol.asyncIterator](){
+		return this
+	}
+	get ended(){
+		return this[ ended]
 	}
 }
 export {
