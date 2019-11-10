@@ -1,7 +1,7 @@
 "use module"
 import Defer from "p-defer"
 
-export class AsyncIterPipeDoneError extends Error{
+export class AsyncIterPipeAbortError extends Error{
 	constructor( asyncIterPipe){
 		super("AsyncIterPipeDoneError")
 		this.asyncIterPipe= asyncIterPipe
@@ -10,9 +10,23 @@ export class AsyncIterPipeDoneError extends Error{
 
 const resolved= Promise.resolve()
 
+// public facing symbols
 export const Drop= Symbol.for( "async-iter-pipe:drop")
 
-const ended= Symbol.for( "async-iter-pipe:ended")
+// internal symbols
+export const
+  _controller= Symbol.for( "async-iter-pipe:_controller"),
+  _doneSignal= Symbol.for( "async-iter-pipe:_doneSignal"),
+  _abortSignal= Symbol.for( "async-iter-pipe:_abortSignal")
+
+export const controllerSignals= {
+	[{ name: "abort", test: "aborted"}]
+}
+
+export const listenerBinding= {
+	passive: true,
+	once: true
+}
 
 let n= 0
 
@@ -21,6 +35,8 @@ export class AsyncIterPipe{
 	static get [ Symbol.species](){
 		return Promise
 	}
+	static get controllerSignals(){ return controllerSignals}
+	static get listenerBinding(){ return listenerBinding}
 
 	// note: falsy values commented out
 
@@ -33,27 +49,21 @@ export class AsyncIterPipe{
 	tail= resolved
 	//map= null
 
-	// stored
-	onAbort= null
-
-
 	readCount= 0
-	writecont= 0;
-	[ ended]= Defer()
+	writecont= 0
 
 	// modes
-	//produceAfterReturn= false
+	////produceAfterReturn= false
 	//strictAsync= false
 
 	constructor( opts){
-		this.onAbort= ex=> this.throw( ex)
 		if( opts){
-			if( opts.signal){
-				this.signal= opts.signal
+			if( opts.controller){
+				this.signal= opts.controller.signal
 			}
-			if( opts.produceAfterReturn){
-				this.produceAfterReturn= true
-			}
+			//if( opts.produceAfterReturn){
+			//	this.produceAfterReturn= true
+			//}
 			if( opts.tail|| opts.sloppy){
 				this.tail= opts.tail|| null
 			}
@@ -64,16 +74,6 @@ export class AsyncIterPipe{
 				this.map= opts.map
 			}
 		}
-	}
-	set signal( signal){
-		if( this.signal_){
-			this.signal_.removeEventListener( this.onAbort)
-		}
-		this.signal_= signal
-		signal.once( this.onAbort, { passive: true})
-	}
-	get signal(){
-		return this.signal_
 	}
 	/**
 	* Return number of stored write values ready to consume,
@@ -93,7 +93,7 @@ export class AsyncIterPipe{
 	* Fill any outstanding reads, then save further produced values
 	*/
 	produce( ...vals){
-		console.log( "pipe-produce", this.done, this.reads)
+		//console.log( "pipe-produce", this.done, this.reads)
 		// cannot produce if done
 		if( this.done&& !this.reads){
 			throw new AsyncIterPipeDoneError( this)
@@ -169,7 +169,7 @@ export class AsyncIterPipe{
 		}
 	}
 	async produceFrom( iterable, close= false){
-		console.log( "pipe-produceFrom")
+		//console.log( "pipe-produceFrom")
 		for await( let item of iterable|| []){
 			this.produce( item)
 		}
@@ -178,12 +178,13 @@ export class AsyncIterPipe{
 		}
 	}
 
-	_nextReturn( fn, value, done= false){
-		console.log( "pipe-_nextReturn")
+	_nextReturn( fn, value){
+		//console.log( "pipe-_nextReturn")
 		value= fn? fn(): value
+		const isPromise= value&& value.then
+
 		// synchronous shortcut: no tracking, no resolving needed
-		if( !this.tail&& !(value&& value.then)){
-			console.log( "pipe-no-tail", value)
+		if( !this.tail&& !isPromise){
 			this.value= value
 			const
 			  iter0= { done, value},
@@ -191,52 +192,31 @@ export class AsyncIterPipe{
 			return iter
 		}
 
-		// await value & await tail, then set value & return it's IterationResult
-		// wouldn't it be cool if?:
-		//   a promise that can describe it's dependencies,
-		//   have "progress" of getting's value then waiting for tail
-		//   perhaps context-runner style resolution
-		const
-		  oldTail= this.tail,
-		  got= (async oldTail=> { //IIFE
-			console.log("pipe-got-hello")
-			value= await value
-			console.log("pipe-got-value")
-			if( oldTail){
-				console.log("pipe-got-tail")
-				await oldTail
-			}
-				console.log("pipe-got-returning")
-			this.value= value
-			return {
-				done,
-				value
-			}
-		  })( oldTail)
-		// set tail if we're doing that
 		if( this.tail){
-			this.tail= got
-			console.log("WAIT", ++n)
-			this.tail.then(x=> console.log("FOUND", n, x))
+			this.tail= this.tail.then( function(){
+				this.value= value
+				return value
+			})
+		
+			return this.tail
 		}
-		console.log( "pipe-got-returns")
-		return got
+		return value
 	}
 	next(){
-		console.log( "pipe-next")
+		//console.log( "pipe-next")
 		++this.readCount
 
 		// use already produced writes
 		// (if ending, flush these out!)
 		const hadWrites= this.writes&& this.writes.length
 		if( !this.done&& hadWrites){
-			console.log( "pipe-next-had-writes")
+			//console.log( "pipe-next-had-writes")
 			return this._nextReturn( null, this.writes.shift())
 		}
 
 		// already done, return so
 		if( this.done|| this.ending){
-			console.log( "pipe-next-already-done")
+			//console.log( "pipe-next-already-done")
 			// done
 			return this._nextReturn(()=> this.value, null, true)
 		}
@@ -244,32 +224,20 @@ export class AsyncIterPipe{
 		// queue up a new pending read
 		let pendingRead= Defer()
 		this.reads.push( pendingRead)
-		console.log( "pipe-next-reads-"+ this.reads.length)
+		//console.log( "pipe-next-reads-"+ this.reads.length)
 		return this._nextReturn( null, pendingRead.promise)
 	}
 
-	_end( value, err){
+	_end( value, error){
 		const reads= this.reads
 		delete this.reads
 		delete this.writes
+
 		this.done= true
 		this.value= value
-		this[ ended].resolve()
+		this.error= error
+		this[ _doneSignal].resolve()
 
-		if( reads&& reads.length!== 0){
-			// special mode that doesn't terminate immediately
-			if( this.produceAfterReturn){
-				this.ending= Defer()
-				this.endingValue= value
-				return this.ending.promise
-			// fail any existing reads
-			}else{
-				const err= new AsyncIterPipeDoneError( this)
-				for( let read of reads|| []){
-					read.reject( err)
-				}
-			}
-		}
 		return {
 			done: true,
 			value
@@ -295,14 +263,80 @@ export class AsyncIterPipe{
 	[ Symbol.asyncIterator](){
 		return this
 	}
-	get ended(){
-		return this[ ended]
+
+
+	get done(){
+		if( !this[ _doneSignal]){
+			this[ _doneSignal]= Defer()
+		}
+		return this[ _doneSignal].promise
+	}
+	get aborted(){
+		if( !this[ _abortSignal]){
+			this[ _abortSignal]= Defer()
+		}
+		return this[ _abortSignal].promise
+	}
+
+	_abortListener(){
+		
+	}
+
+	get controller(){
+		return this[ _controller]
+	}
+	set controller( controller){
+		const oldController= this[ _controller]
+		if( controller== oldController){
+			return
+		}
+		for( const signal of (this.controllerSignals|| this.constructor.controllerSignals)){
+			// get our listener
+			const
+			  listenerName= `_${signal.name}Listener`,
+			  binding= signal.binding|| (this.listenerBinding|| this.constructor.listenerBinding)
+			let listener= this[ listenerName]
+			if( !listener){
+				continue
+			}
+			// insure listener is bound
+			if( listener=== this.constructor.prototype[ listenerName]){
+				listener= this[ listenerName]= listener.bind( this)
+			}
+			// stop listening for old signals
+			if( oldController){
+				oldController.removeEventListener( signal, listener, binding)
+			}
+			// listen for signals
+			if( controller){
+				controller.addEventListener( signal, listener, binding)
+			}
+			// controller might already have signalled
+			if( controller[ signal.test]){
+				listener()
+			}
+		}
+	}
+	_abortListener(){
+		// end
+		const reads= this.reads
+		delete this.reads
+		this.aborted= true
+		this._end()
+
+		// signal aborts
+		const err= new AsyncIterPipeAbortError()
+		for( const read in reads|| []){
+			read.reject( err)
+		}
 	}
 }
 export {
 	AsyncIterPipe as default,
 	AsyncIterPipe as asyncIterPipe,
-	AsyncIterPipeDoneError as asyncIterPipeDoneError,
-	AsyncIterPipeDoneError as DoneException,
-	AsyncIterPipeDoneError as doneException
+	AsyncIterPipe as Pipe,
+	AsyncIterPipe as pipe,
+	AsyncIterPipeAbortError as asyncIterPipeAbortError,
+	AsyncIterPipeAbortError as AbortException,
+	AsyncIterPipeAbortError as abortException
 }
