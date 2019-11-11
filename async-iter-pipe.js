@@ -124,15 +124,16 @@ export class AsyncIterPipe{
 
 				// resolve
 				++this.writeCount
-				this.reads[ readPos++].resolve( val)
+				this.reads[ readPos++].resolve({ value, done: false})
 			}
 			// remove these now satisfied reads
 			if( valPos> 0){
 				this.reads.splice( 0, valPos)
 			}
 
+			// vals are gone!
 			if( valPos=== vals.length){
-				// vals are gone!
+				// it's the end
 				if(( this.done|| this.ending)&& this.reads.length=== 0){
 					// cleanup, no more reads coming
 					delete this.reads
