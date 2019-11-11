@@ -52,6 +52,8 @@ export class AsyncIterPipe{
 	readCount= 0
 	writecont= 0
 
+	[ _doneSignal]= Defer()
+
 	// modes
 	////produceAfterReturn= false
 	//strictAsync= false
@@ -105,18 +107,21 @@ export class AsyncIterPipe{
 			let readPos= 0
 			for( ; valPos< vals.length&& readPos< this.reads.length; ++valPos){
 				let val= vals[ valPos]
-				if( this.map&& !this.producing){
-					this.producing= true
-					val= this.map( val)
-					this.producing= false
-					if( val=== Drop){
-						continue
-					}
-					if( readPos>= this.reads.length){
-						// map could have produced more values so recheck
-						break
-					}
-				}
+
+				// old mode where a map function could produce additional values
+				//if( this.map&& !this.producing){
+				//	this.producing= true
+				//	val= this.map( val)
+				//	this.producing= false
+				//	if( val=== Drop){
+				//		continue
+				//	}
+				//	if( readPos>= this.reads.length){
+				//		// map could have produced more values so recheck
+				//		break
+				//	}
+				//}
+
 				// resolve
 				++this.writeCount
 				this.reads[ readPos++].resolve( val)
