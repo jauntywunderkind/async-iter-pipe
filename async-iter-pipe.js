@@ -270,22 +270,43 @@ export class AsyncIterPipe{
 		return this
 	}
 
-
-	get done(){
+	// signal for then everything finishes
+	thenDone( ok, fail){
 		if( !this[ _doneSignal]){
 			this[ _doneSignal]= Defer()
 		}
+		if( ok, fail){
+			return this[ _doneSignal].promise.then( ok, fail)
+		}
 		return this[ _doneSignal].promise
 	}
-	get aborted(){
+	thenAborted( ok, fail){
 		if( !this[ _abortSignal]){
 			this[ _abortSignal]= Defer()
+		}
+		if( ok|| fail){
+			return this[ _abortSignal].promise.then( ok, fail)
 		}
 		return this[ _abortSignal].promise
 	}
 
-	_abortListener(){
-		
+	// this is the DOM EventTarget that we listen to hear about abort
+	// ed: kinda thinking of the name _raiseListener but ew name maingling?
+	_abortListener( err){
+		if(!( err instanceof AsyncIterPipeAbortError)){
+			err= new AsyncIterPipeAbortError( err)
+		}
+
+		// outstanding reads get dropped
+		for( let i= 0; i< this.reads.length; ++i){
+			let read= this.reads[ i]
+			read.reject( err)
+		}
+		// raise the abort signal
+		this[ _abortSignal].resolve( err)
+
+		// delay, then raise the done signal	
+		delay().then( this._doneListener)
 	}
 
 	get controller(){
