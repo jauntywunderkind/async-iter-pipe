@@ -2,9 +2,18 @@
 import Defer from "p-defer"
 
 export class AsyncIterPipeAbortError extends Error{
-	constructor( asyncIterPipe){
+	constructor( asyncIterPipe, err){
 		super("AsyncIterPipeDoneError")
 		this.asyncIterPipe= asyncIterPipe
+		this.inner= err
+	}
+}
+
+export class AsyncIterPipeDoneError extends Error{
+	constructor( asyncIterPipe, err){
+		super("AsyncIterPipeDoneError")
+		this.asyncIterPipe= asyncIterPipe
+		this.inner= err
 	}
 }
 
@@ -19,9 +28,9 @@ export const
   _doneSignal= Symbol.for( "async-iter-pipe:_doneSignal"),
   _abortSignal= Symbol.for( "async-iter-pipe:_abortSignal")
 
-export const controllerSignals= {
-	[{ name: "abort", test: "aborted"}]
-}
+export const controllerSignals= [
+	{name: "abort", test: "aborted"}
+]
 
 export const listenerBinding= {
 	passive: true,
@@ -42,23 +51,23 @@ export class AsyncIterPipe{
 
 	// state
 	done= false
-	//value= null
+	value= null
 	reads= [] // reads from consumers pending new values
 	writes= [] // writes from produce awaiting readers
-	//ending= false // wrapping up but not done yet
+	ending= false // wrapping up but not done yet
 	tail= resolved
-	//map= null
 
 	readCount= 0
 	writecont= 0
 
-	[ _doneSignal]= Defer()
+	//[ _doneSignal]= Defer()
 
 	// modes
 	////produceAfterReturn= false
 	//strictAsync= false
 
 	constructor( opts){
+		this[ _doneSignal]= Defer()
 		if( opts){
 			if( opts.controller){
 				this.signal= opts.controller.signal
@@ -97,7 +106,8 @@ export class AsyncIterPipe{
 	produce( ...vals){
 		//console.log( "pipe-produce", this.done, this.reads)
 		// cannot produce if done
-		if( this.done&& !this.reads){
+		if( this.done){
+			console.log("EARLY ABORT")
 			throw new AsyncIterPipeDoneError( this)
 		}
 
@@ -123,40 +133,54 @@ export class AsyncIterPipe{
 				//}
 
 				// resolve
-				++this.writeCount
 				this.reads[ readPos++].resolve({ value, done: false})
+				++this.writeCount
 			}
-			// remove these now satisfied reads
 			if( valPos> 0){
-				this.reads.splice( 0, valPos)
-			}
 
-			// vals are gone!
-			if( valPos=== vals.length){
-				// it's the end
-				if(( this.done|| this.ending)&& this.reads.length=== 0){
-					// cleanup, no more reads coming
-					delete this.reads
-					this.done= true
-					if( this.ending){
-						queueMicrotask(()=> {
-							this.value= this.endingValue
-							delete this.endingValue
-							if( this.ending&& this.ending.resolve){
-								this.ending.resolve({
-									done: true,
-									value: this.value
-								})
-							}
-						})
-					}
-				}
-				return
 			}
 		}
 
+
+		// check our done-ness
+		if( reads.length=== 0){
+			
+		// remove these now satisfied reads
+		if( valPos> 0){
+			this.reads.splice( 0, valPos)
+		}
+
+
+
+		}
+
+		// we've consumed all `vals` in this produce.
+		if( valPos=== vals.length){
+			// it's the end
+			if(( this.done|| this.ending)&& this.reads.length=== 0){
+				// cleanup, no more reads coming
+				delete this.reads
+				this.done= true
+				if( this.ending){
+					queueMicrotask(()=> {
+						this.value= this.endingValue
+						delete this.endingValue
+						if( this.ending&& this.ending.resolve){
+							this.ending.resolve({
+								done: true,
+								value: this.value
+							})
+						}
+					})
+				}
+			}
+			return
+		}
+
+
 		if( this.ending){
-			throw new AsyncIterPipeDoneError( this)
+			console.log("LATE ABORT")
+			throw new AsyncIterPipeAbortError( this)
 		}
 
 		// save remainder into outstanding writes
@@ -199,7 +223,7 @@ export class AsyncIterPipe{
 		}
 
 		if( this.tail){
-			this.tail= this.tail.then( function(){
+			this.tail= this.tail.then(()=> {
 				this.value= value
 				return value
 			})
@@ -235,18 +259,26 @@ export class AsyncIterPipe{
 	}
 
 	_end( value, error){
-		const reads= this.reads
-		delete this.reads
-		delete this.writes
-
 		this.done= true
 		this.value= value
 		this.error= error
-		this[ _doneSignal].resolve()
 
+		// don't return until we really finish
+		if( this.reads&& this.reads.length){
+			return this.thenDone().then(()=> this._close( value, error))
+		}
+
+		// we're really finished, so signal as such
+		if( this[ _doneSignal]){
+			this[ _doneSignal].resolve()
+		}
+		if( this[ _abortSignal]){
+			// maybe already resolved, but insure it's not dangling
+			this[ _abortsignal].reject()
+		}
 		return {
 			done: true,
-			value
+			value: value|| error
 		}
 	}
 
@@ -258,43 +290,15 @@ export class AsyncIterPipe{
 		return this._end( value)
 	}
 	/**
-	* Immediately become done and reject and pending reads.
+	* Immediately become done and reject any pending reads.
 	*/
 	throw( ex){
 		return this._end( undefined, ex)
 	}
-	[ Symbol.iterator](){
-		return this
-	}
-	[ Symbol.asyncIterator](){
-		return this
-	}
-
-	// signal for then everything finishes
-	thenDone( ok, fail){
-		if( !this[ _doneSignal]){
-			this[ _doneSignal]= Defer()
-		}
-		if( ok, fail){
-			return this[ _doneSignal].promise.then( ok, fail)
-		}
-		return this[ _doneSignal].promise
-	}
-	thenAborted( ok, fail){
-		if( !this[ _abortSignal]){
-			this[ _abortSignal]= Defer()
-		}
-		if( ok|| fail){
-			return this[ _abortSignal].promise.then( ok, fail)
-		}
-		return this[ _abortSignal].promise
-	}
-
-	// this is the DOM EventTarget that we listen to hear about abort
-	// ed: kinda thinking of the name _raiseListener but ew name maingling?
-	_abortListener( err){
+	abort( err){
+		this.aborted= true
 		if(!( err instanceof AsyncIterPipeAbortError)){
-			err= new AsyncIterPipeAbortError( err)
+			err= new AsyncIterPipeAbortError( this, err)
 		}
 
 		// outstanding reads get dropped
@@ -306,8 +310,37 @@ export class AsyncIterPipe{
 		this[ _abortSignal].resolve( err)
 
 		// delay, then raise the done signal	
-		delay().then( this._doneListener)
+		return delay().then(()=> this._end())
 	}
+
+	[ Symbol.iterator](){
+		return this
+	}
+	[ Symbol.asyncIterator](){
+		return this
+	}
+
+	// signal for when everything finishes
+	thenDone( ok, fail){
+		if( !this[ _doneSignal]){
+			this[ _doneSignal]= Defer()
+		}
+		if( ok|| fail){
+			return this[ _doneSignal].promise.then( ok, fail)
+		}
+		return this[ _doneSignal].promise
+	}
+	// signal for abort
+	thenAborted( ok, fail){
+		if( !this[ _abortSignal]){
+			this[ _abortSignal]= Defer()
+		}
+		if( ok|| fail){
+			return this[ _abortSignal].promise.then( ok, fail)
+		}
+		return this[ _abortSignal].promise
+	}
+
 
 	get controller(){
 		return this[ _controller]
@@ -320,7 +353,7 @@ export class AsyncIterPipe{
 		for( const signal of (this.controllerSignals|| this.constructor.controllerSignals)){
 			// get our listener
 			const
-			  listenerName= `_${signal.name}Listener`,
+			  listenerName= signal.name,
 			  binding= signal.binding|| (this.listenerBinding|| this.constructor.listenerBinding)
 			let listener= this[ listenerName]
 			if( !listener){
@@ -342,19 +375,6 @@ export class AsyncIterPipe{
 			if( controller[ signal.test]){
 				listener()
 			}
-		}
-	}
-	_abortListener(){
-		// end
-		const reads= this.reads
-		delete this.reads
-		this.aborted= true
-		this._end()
-
-		// signal aborts
-		const err= new AsyncIterPipeAbortError()
-		for( const read in reads|| []){
-			read.reject( err)
 		}
 	}
 }
