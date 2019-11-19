@@ -88,199 +88,38 @@ export class AsyncIterPipe{
 		}
 	}
 
-	async push( ...items){
-		// resolve as many outstanding reads as we can
-		let valPos= 0
-
-
-		while( valPos< vals.length&& valPos< this.reads.length){
-			let val= vals[ valPos]
-			if( val.then){
-				val.then(value=> this.push( value))
-			}
-
-			// resolve
-			this.reads[ valPos].resolve({ value, done: false})
-			++valPos
-			++this.writeCount
-		}
-	
-	}
-
-	/**
-	* Fill any outstanding reads, then save further pushd values
-	*/
-	async pushEach( iter){
-		const iter= (iter[ Symbol.asyncIterator]|| iter[ Symbol.syncIterator]).call( iter)
-		let buffer
-		do{
-			step= iter.next()
-			const
-			  isAsync= !!step.then
-			  sync= isAsync? await step: step
-			if( sync){
-				if( buffer){
-					buffer.push( step.value)
-				}else{
-					buffer=[ step.value]
-				}
-			}else{
-				
-			}
-		}while( !step.done)
-		if( buffer){
-			this.push( ...buffer)
-		}
-	}
-		if( valPos> 0){
-			if( valPos=
-			if(valPos=== this.reads.length){
-				
-			}
-			
-		}
-
-		//console.log( "pipe-push", this.done, this.reads)
-		// cannot push if done
-		if( this.done){
-			console.log("EARLY ABORT")
-			throw new AsyncIterPipeDoneError( this)
-		}
-
-
-
-
-		// check our done-ness
-		if( reads.length=== 0){
-			
-		// remove these now satisfied reads
-		if( valPos> 0){
-			this.reads.splice( 0, valPos)
-		}
-
-
-
-		}
-
-		// we've consumed all `vals` in this push.
-		if( valPos=== vals.length){
-			// it's the end
-			if(( this.done|| this.ending)&& this.reads.length=== 0){
-				// cleanup, no more reads coming
-				delete this.reads
-				this.done= true
-				if( this.ending){
-					queueMicrotask(()=> {
-						this.value= this.endingValue
-						delete this.endingValue
-						if( this.ending&& this.ending.resolve){
-							this.ending.resolve({
-								done: true,
-								value: this.value
-							})
-						}
-					})
-				}
-			}
-			return
-		}
-
-
-		if( this.ending){
-			console.log("LATE ABORT")
-			throw new AsyncIterPipeAbortError( this)
-		}
-
-		// save remainder into outstanding writes
-		for( ; valPos< vals.length; ++valPos){
-			let val= vals[ valPos]
-			if( this.map&& !this.producing){
-				this.producing= true
-				val= this.map( vals[ valPos])
-				this.producing= false
-				if( val=== Drop){
-					continue
-				}
-			}
-			++this.writeCount
-			this.writes.push( val)
-		}
-	}
-	async pushFrom( iterable, close= false){
-		//console.log( "pipe-pushFrom")
-		for await( let item of iterable|| []){
-			this.push( item)
-		}
-		if( close){
-			this.return( close)
+	push( ...items){
+		let i= 0
+		while( !this.done&& i< items.length){
+			this._push(items[ i++])
 		}
 	}
 
-	_nextReturn( fn, value){
-		//console.log( "pipe-_nextReturn")
-		value= fn? fn(): value
-		const isPromise= value&& value.then
-
-		// synchronous shortcut: no tracking, no resolving needed
-		if( !this.tail&& !isPromise){
-			this.value= value
-			const
-			  iter0= { done, value},
-			  iter= 
-this.strictAsync? Promise.resolve( iter0): iter0
-			return iter
-		}
-
-		if( this.tail){
-			this.tail= this.tail.then(()=> {
-				this.value= value
-				return value
-			})
-		
-			return this.tail
-		}
-		return value
-	}
 	next(){
-
-		if( this.done|| this.ending){
-			return this.thenDone()
+		// if we're done nothing more happens
+		if( this.done){
+			return {
+				done: true,
+				value: this.value
+			}
 		}
 
-		//console.log( "pipe-next")
+		// so this read is happening
 		++this.readCount
 
-		// use already pushd writes
-		// (if ending, flush these out!)
+		// use already pushed writes
 		const hadWrites= this.writes&& this.writes.length
 		if( !hadWrites){
-			//console.log( "pipe-next-had-writes")
-			//return this._nextReturn( null, this.writes.shift())
-			const value= this.value= this.writes.shift()
-			if( value.then|| this.strictAsync){
-				return value.then( value=> {
-					value,
-					done: false
-				})
-			}
-			return {
-			  value,
-			  done: false
-			}
-		}
-
-		// already done, return so
-		if( this.done|| this.ending){
-			//console.log( "pipe-next-already-done")
-			// done
-			return this._nextReturn(()=> this.value, null, true)
+			const
+			  value= this.value= this.writes.shift(),
+			  iter= { value, done: false}
+			return this.strictAysync? Promise.resolve( iter): iter
 		}
 
 		// queue up a new pending read
-		let pendingRead= Defer()
-		this.reads.push( pendingRead)
-		//console.log( "pipe-next-reads-"+ this.reads.length)
-		return this._nextReturn( null, pendingRead.promise)
+		let pending= Defer()
+		this.reads.push( pending)
+		return pending.promise
 	}
 
 	/**
@@ -307,6 +146,7 @@ this.strictAsync? Promise.resolve( iter0): iter0
 			value.then( this._push)
 			return
 		}
+		++this.writeCount
 
 		if( this.reads&& this.reads.length> 0){
 			this.value= value
@@ -333,8 +173,6 @@ this.strictAsync? Promise.resolve( iter0): iter0
 			this.writes.push( value)
 		}
 	}
-
-
 
 	_end( value, ex){
 		this.done= true
