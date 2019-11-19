@@ -1,5 +1,6 @@
 "use module"
 import Defer from "p-defer"
+import Dequeue from "dequeue"
 
 export class AsyncIterPipeAbortError extends Error{
 	constructor( asyncIterPipe, err){
@@ -54,22 +55,20 @@ export class AsyncIterPipe{
 	// state
 	done= false
 	value= null
-	reads= [] // reads from consumers pending new values
-	writes= [] // writes from push awaiting readers
-	ending= false // wrapping up but not done yet
-	tail= resolved
+	reads= new Deqeueu() // reads from consumers pending new values
+	writes= new Deqeueue() // writes from push awaiting readers
 
 	readCount= 0
-	writecont= 0
+	writeCount= 0
 
+	// not valid syntax?
 	//[ _doneSignal]= Defer()
 
-	// modes
-	////pushAfterReturn= false
+	// mode which is false
 	//strictAsync= false
 
 	constructor( opts){
-		this._publishPromise= this._publishPromise.bind( this)
+		this._push= this._push.bind( this)
 		if( opts){
 			if( opts.controller){
 				this.signal= opts.controller.signal
@@ -87,40 +86,6 @@ export class AsyncIterPipe{
 				this.map= opts.map
 			}
 		}
-	}
-	/**
-	* Return number of stored write values ready to consume,
-	* or if negative, the number of read values pending
-	*/
-	get queueCount(){
-		if( this.writes&& this.writes.length){
-			return this.writes.length
-		}else if( this.reads&& this.reads.length){
-			return -this.reads.length
-		}else{
-			return 0
-		}
-	}
-
-	_push( value){
-		if( value.then){
-			value.then( this._push)
-			return
-		}
-
-		if( this.reads&& this.reads.length> 0){
-			this.value= value
-			const read= this.reads.pop()
-			read.resolve({ value, done: false})
-
-			if( this[ _doneSignal]&& this.done&& this.reads.length=== 0){
-				this.value= this.returnValue
-				this[ _doneSignal].resolve({ done: true, value: this.doneValue})
-			}
-		}
-		
-		if( this.reads
-		
 	}
 
 	async push( ...items){
@@ -318,6 +283,59 @@ this.strictAsync? Promise.resolve( iter0): iter0
 		return this._nextReturn( null, pendingRead.promise)
 	}
 
+	/**
+	* Return number of stored write values ready to consume,
+	* or if negative, the number of read values pending
+	*/
+	get queueCount(){
+		if( this.writes&& this.writes.length){
+			return this.writes.length
+		}else if( this.reads&& this.reads.length){
+			return -this.reads.length
+		}else{
+			return 0
+		}
+	}
+
+	_push( value){
+		// first check- still going?
+		if( this.done){
+			return
+		}
+		// sync-hronize
+		if( value.then){
+			value.then( this._push)
+			return
+		}
+
+		if( this.reads&& this.reads.length> 0){
+			this.value= value
+			const read= this.reads.pop()
+			read.resolve({ value, done: false})
+
+			let closing
+			if( this.reads.length=== 0&& !!(closing= this.closing)){
+				this.done= true
+				if( this.returned){
+					this.value= this.returnValue
+				}else if( this.thrown){
+					this.value= this.throwException
+				}else if( this.aborted){
+					this.value= this.abortException
+				}
+				if( this[ _doneSignal]){
+					this[ _doneSignal].resolve( this)
+				}
+			}
+			return
+		}else{
+			// value is already synchronous, since we've sync-hronized above
+			this.writes.push( value)
+		}
+	}
+
+
+
 	_end( value, ex){
 		this.done= true
 		this.returnValue= value
@@ -365,24 +383,24 @@ this.strictAsync? Promise.resolve( iter0): iter0
 		this.throwException= ex
 		return this._end( undefined, ex)
 	}
-	abort( err){
+	abort( ex){
 		if( this.closing){
 			return
 		}
 		this.aborted= true
-		this.abortError= err
+		this.abortException= ex
 
-		if(!( err instanceof AsyncIterPipeAbortError)){
-			err= new AsyncIterPipeAbortError( this, err)
+		if(!( ex instanceof AsyncIterPipeAbortError)){
+			ex= new AsyncIterPipeAbortError( this, ex)
 		}
 
 		// outstanding reads get dropped
 		for( let i= 0; i< this.reads.length; ++i){
 			let read= this.reads[ i]
-			read.reject( err)
+			read.reject( ex)
 		}
 		// raise the abort signal
-		this[ _abortSignal].resolve( err)
+		this[ _abortSignal].resolve( ex)
 
 		// delay, then raise the done signal	
 		return delay().then(()=> this._end())
