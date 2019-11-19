@@ -16,6 +16,8 @@ export class AsyncIterPipeDoneError extends Error{
 		this.inner= err
 	}
 }
+AsyncIterPipeAbortError.prototype= AsyncIterPipeDoneError.prototype
+AsyncIterPipeAbortError.prototype.constructor= AsyncIterPipeAbortError
 
 const resolved= Promise.resolve()
 
@@ -53,7 +55,7 @@ export class AsyncIterPipe{
 	done= false
 	value= null
 	reads= [] // reads from consumers pending new values
-	writes= [] // writes from produce awaiting readers
+	writes= [] // writes from push awaiting readers
 	ending= false // wrapping up but not done yet
 	tail= resolved
 
@@ -63,17 +65,17 @@ export class AsyncIterPipe{
 	//[ _doneSignal]= Defer()
 
 	// modes
-	////produceAfterReturn= false
+	////pushAfterReturn= false
 	//strictAsync= false
 
 	constructor( opts){
-		this[ _doneSignal]= Defer()
+		this._publishPromise= this._publishPromise.bind( this)
 		if( opts){
 			if( opts.controller){
 				this.signal= opts.controller.signal
 			}
-			//if( opts.produceAfterReturn){
-			//	this.produceAfterReturn= true
+			//if( opts.pushAfterReturn){
+			//	this.pushAfterReturn= true
 			//}
 			if( opts.tail|| opts.sloppy){
 				this.tail= opts.tail|| null
@@ -100,46 +102,87 @@ export class AsyncIterPipe{
 		}
 	}
 
+	_push( value){
+		if( value.then){
+			value.then( this._push)
+			return
+		}
+
+		if( this.reads&& this.reads.length> 0){
+			this.value= value
+			const read= this.reads.pop()
+			read.resolve({ value, done: false})
+
+			if( this[ _doneSignal]&& this.done&& this.reads.length=== 0){
+				this.value= this.returnValue
+				this[ _doneSignal].resolve({ done: true, value: this.doneValue})
+			}
+		}
+		
+		if( this.reads
+		
+	}
+
+	async push( ...items){
+		// resolve as many outstanding reads as we can
+		let valPos= 0
+
+
+		while( valPos< vals.length&& valPos< this.reads.length){
+			let val= vals[ valPos]
+			if( val.then){
+				val.then(value=> this.push( value))
+			}
+
+			// resolve
+			this.reads[ valPos].resolve({ value, done: false})
+			++valPos
+			++this.writeCount
+		}
+	
+	}
+
 	/**
-	* Fill any outstanding reads, then save further produced values
+	* Fill any outstanding reads, then save further pushd values
 	*/
-	produce( ...vals){
-		//console.log( "pipe-produce", this.done, this.reads)
-		// cannot produce if done
+	async pushEach( iter){
+		const iter= (iter[ Symbol.asyncIterator]|| iter[ Symbol.syncIterator]).call( iter)
+		let buffer
+		do{
+			step= iter.next()
+			const
+			  isAsync= !!step.then
+			  sync= isAsync? await step: step
+			if( sync){
+				if( buffer){
+					buffer.push( step.value)
+				}else{
+					buffer=[ step.value]
+				}
+			}else{
+				
+			}
+		}while( !step.done)
+		if( buffer){
+			this.push( ...buffer)
+		}
+	}
+		if( valPos> 0){
+			if( valPos=
+			if(valPos=== this.reads.length){
+				
+			}
+			
+		}
+
+		//console.log( "pipe-push", this.done, this.reads)
+		// cannot push if done
 		if( this.done){
 			console.log("EARLY ABORT")
 			throw new AsyncIterPipeDoneError( this)
 		}
 
-		// resolve as many outstanding reads as we can
-		let valPos= 0
-		if( this.reads){
-			let readPos= 0
-			for( ; valPos< vals.length&& readPos< this.reads.length; ++valPos){
-				let val= vals[ valPos]
 
-				// old mode where a map function could produce additional values
-				//if( this.map&& !this.producing){
-				//	this.producing= true
-				//	val= this.map( val)
-				//	this.producing= false
-				//	if( val=== Drop){
-				//		continue
-				//	}
-				//	if( readPos>= this.reads.length){
-				//		// map could have produced more values so recheck
-				//		break
-				//	}
-				//}
-
-				// resolve
-				this.reads[ readPos++].resolve({ value, done: false})
-				++this.writeCount
-			}
-			if( valPos> 0){
-
-			}
-		}
 
 
 		// check our done-ness
@@ -154,7 +197,7 @@ export class AsyncIterPipe{
 
 		}
 
-		// we've consumed all `vals` in this produce.
+		// we've consumed all `vals` in this push.
 		if( valPos=== vals.length){
 			// it's the end
 			if(( this.done|| this.ending)&& this.reads.length=== 0){
@@ -198,10 +241,10 @@ export class AsyncIterPipe{
 			this.writes.push( val)
 		}
 	}
-	async produceFrom( iterable, close= false){
-		//console.log( "pipe-produceFrom")
+	async pushFrom( iterable, close= false){
+		//console.log( "pipe-pushFrom")
 		for await( let item of iterable|| []){
-			this.produce( item)
+			this.push( item)
 		}
 		if( close){
 			this.return( close)
@@ -218,7 +261,8 @@ export class AsyncIterPipe{
 			this.value= value
 			const
 			  iter0= { done, value},
-			  iter= this.strictAsync? Promise.resolve( iter0): iter0
+			  iter= 
+this.strictAsync? Promise.resolve( iter0): iter0
 			return iter
 		}
 
@@ -233,15 +277,31 @@ export class AsyncIterPipe{
 		return value
 	}
 	next(){
+
+		if( this.done|| this.ending){
+			return this.thenDone()
+		}
+
 		//console.log( "pipe-next")
 		++this.readCount
 
-		// use already produced writes
+		// use already pushd writes
 		// (if ending, flush these out!)
 		const hadWrites= this.writes&& this.writes.length
-		if( !this.done&& hadWrites){
+		if( !hadWrites){
 			//console.log( "pipe-next-had-writes")
-			return this._nextReturn( null, this.writes.shift())
+			//return this._nextReturn( null, this.writes.shift())
+			const value= this.value= this.writes.shift()
+			if( value.then|| this.strictAsync){
+				return value.then( value=> {
+					value,
+					done: false
+				})
+			}
+			return {
+			  value,
+			  done: false
+			}
 		}
 
 		// already done, return so
@@ -258,10 +318,10 @@ export class AsyncIterPipe{
 		return this._nextReturn( null, pendingRead.promise)
 	}
 
-	_end( value, error){
+	_end( value, ex){
 		this.done= true
-		this.value= value
-		this.error= error
+		this.returnValue= value
+		this.throwException= ex
 
 		// don't return until we really finish
 		if( this.reads&& this.reads.length){
@@ -270,7 +330,7 @@ export class AsyncIterPipe{
 
 		// we're really finished, so signal as such
 		if( this[ _doneSignal]){
-			this[ _doneSignal].resolve()
+			this[ _doneSignal].resolve({ value: this.value, done: true)
 		}
 		if( this[ _abortSignal]){
 			// maybe already resolved, but insure it's not dangling
@@ -283,20 +343,35 @@ export class AsyncIterPipe{
 	}
 
 	/**
-	* Stop allowing produce, and stop returning already produced values.
-	* If 'produceAfterReturn' mode is set, produce will continue to fulfill already issues reads.
+	* Stop allowing push, and stop returning already pushd values.
+	* If 'pushAfterReturn' mode is set, push will continue to fulfill already issues reads.
 	*/
 	return( value){
+		if( this.closing){
+			return 
+		}
+		this.returned= true
+		this.returnValue= value
 		return this._end( value)
 	}
 	/**
 	* Immediately become done and reject any pending reads.
 	*/
 	throw( ex){
+		if( !this.closing){
+			return
+		}
+		this.thrown= true
+		this.throwException= ex
 		return this._end( undefined, ex)
 	}
 	abort( err){
+		if( this.closing){
+			return
+		}
 		this.aborted= true
+		this.abortError= err
+
 		if(!( err instanceof AsyncIterPipeAbortError)){
 			err= new AsyncIterPipeAbortError( this, err)
 		}
@@ -311,6 +386,15 @@ export class AsyncIterPipe{
 
 		// delay, then raise the done signal	
 		return delay().then(()=> this._end())
+	}
+	get closing(){
+		if( this.returned){
+			return "return"
+		}if( this.aborted){
+			return "abort"
+		}else if( this.thrown){
+			return "throw"
+		}
 	}
 
 	[ Symbol.iterator](){
