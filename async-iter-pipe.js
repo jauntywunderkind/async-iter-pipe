@@ -156,7 +156,7 @@ export class AsyncIterPipe{
 
 		if( this.reads&& this.reads.length> 0){
 			this.value= value
-			const read= this.reads.pop()
+			const read= this.reads.shift()
 			read.resolve({ value, done: false})
 
 			let closing
