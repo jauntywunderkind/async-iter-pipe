@@ -1,7 +1,7 @@
 "use module"
 
+import AGT from "../async-iter-pipe.js"
 import tape from "tape"
-import AGT from ".."
 import Immediate from "p-immediate"
 
 tape( "map produce then read", async function( t){
