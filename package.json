@@ -20,6 +20,8 @@
 		"tape": "^4.11.0"
 	},
 	"dependencies": {
+		"deqeueue": "^1.0.5",
 		"p-defer": "^3.0.0"
-	}
+	},
+	"type": "module"
 }

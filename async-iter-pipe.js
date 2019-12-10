@@ -2,34 +2,40 @@
 import Defer from "p-defer"
 import Dequeue from "dequeue"
 
-export class AsyncIterPipeAbortError extends Error{
-	constructor( asyncIterPipe, err){
-		super("AsyncIterPipeDoneError")
-		this.asyncIterPipe= asyncIterPipe
-		this.inner= err
-	}
+export function AsyncIterPipeError( asyncIterPipe, err, msg= "AsyncIterPipeError"){
+	Error.call( this, msg, err)
+	this.asyncIterPipe= asyncIterPipe
 }
+AsyncIterPipeError.prototype = Object.create( Error.prototype)
+AsyncIterPipeError.prototype.constructor = AsyncIterPipeError
+export const PipeError= AsyncIterPipeError
 
-export class AsyncIterPipeDoneError extends Error{
-	constructor( asyncIterPipe, err){
-		super("AsyncIterPipeDoneError")
-		this.asyncIterPipe= asyncIterPipe
-		this.inner= err
-	}
+export function AsyncIterPipeAbortError( asyncIterPipe, err, msg= "AsyncIterPipeAbortError"){
+	AsyncIterPipeError.call( asyncIterPipe, err, msg)
 }
-AsyncIterPipeAbortError.prototype= AsyncIterPipeDoneError.prototype
-AsyncIterPipeAbortError.prototype.constructor= AsyncIterPipeAbortError
+AsyncIterPipeAbortError.prototype = Object.create( AsyncIterPipeError.prototype)
+AsyncIterPipeAbortError.prototype.constructor = AsyncIterPipeAbortError
+export const PipeAbortError= AsyncIterPipeAbortError
+
+export function AsyncIterPipeDoneError( asyncIterPipe, err, msg= "AsyncIterPipeDoneError"){
+	AsyncIterPipeError.call( asyncIterPipe, err, msg)
+}
+AsyncIterPipeDoneError.prototype = Object.create( AsyncIterPipeError.prototype)
+AsyncIterPipeDoneError.prototype.constructor = AsyncIterPipeDoneError
+export const PipeDoneError= AsyncIterPipeDoneError
 
 const resolved= Promise.resolve()
 
 // public facing symbols
-export const Drop= Symbol.for( "async-iter-pipe:drop")
+export const
+  AsyncIterPipeDrop= Symbol.for( "async-iter-pipe:drop"),
+  Drop= AsyncIterPipeDrop
 
 // internal symbols
 export const
-  _controller= Symbol.for( "async-iter-pipe:_controller"),
-  _doneSignal= Symbol.for( "async-iter-pipe:_doneSignal"),
-  _abortSignal= Symbol.for( "async-iter-pipe:_abortSignal")
+	_controller= Symbol.for( "async-iter-pipe:_controller"),
+	_doneSignal= Symbol.for( "async-iter-pipe:_doneSignal"),
+	_abortSignal= Symbol.for( "async-iter-pipe:_abortSignal")
 
 export const controllerSignals= [
 	{name: "abort", test: "aborted"}
@@ -55,8 +61,8 @@ export class AsyncIterPipe{
 	// state
 	done= false
 	value= null
-	reads= new Deqeueu() // reads from consumers pending new values
-	writes= new Deqeueue() // writes from push awaiting readers
+	reads= new Dequeue() // reads from consumers pending new values
+	writes= new Dequeue() // writes from push awaiting readers
 
 	readCount= 0
 	writeCount= 0
@@ -109,7 +115,7 @@ export class AsyncIterPipe{
 
 		// use already pushed writes
 		const hadWrites= this.writes&& this.writes.length
-		if( !hadWrites){
+		if( hadWrites){
 			const
 			  value= this.value= this.writes.shift(),
 			  iter= { value, done: false}
@@ -181,12 +187,12 @@ export class AsyncIterPipe{
 
 		// don't return until we really finish
 		if( this.reads&& this.reads.length){
-			return this.thenDone().then(()=> this._close( value, error))
+			return this.thenDone().then(()=> this._end( value, error))
 		}
 
 		// we're really finished, so signal as such
 		if( this[ _doneSignal]){
-			this[ _doneSignal].resolve({ value: this.value, done: true)
+			this[ _doneSignal].resolve({ value: this.value, done: true})
 		}
 		if( this[ _abortSignal]){
 			// maybe already resolved, but insure it's not dangling
@@ -194,7 +200,7 @@ export class AsyncIterPipe{
 		}
 		return {
 			done: true,
-			value: value|| error
+			value: value|| ex
 		}
 	}
 
