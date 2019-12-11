@@ -5,7 +5,7 @@
 	"main": "async-iter-pipe.js",
 	"modules": "async-iter-pipe.js",
 	"scripts": {
-		"test": "node -r esm .test"
+		"test": "node .test/index.js"
 	},
 	"keywords": [
 		"async-iterator",
@@ -15,7 +15,6 @@
 	"author": "jauntywunderkind",
 	"license": "MIT",
 	"devDependencies": {
-		"esm": "^3.2.25",
 		"p-immediate": "^3.1.0",
 		"tape": "^4.11.0"
 	},

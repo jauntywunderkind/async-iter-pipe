@@ -1,5 +1,6 @@
 "use module"
 import Defer from "p-defer"
+import Delay from "delay"
 import Dequeue from "dequeue"
 
 export function AsyncIterPipeError( asyncIterPipe, err, msg= "AsyncIterPipeError"){
@@ -220,23 +221,34 @@ export class AsyncIterPipe{
 	* Immediately become done and reject any pending reads.
 	*/
 	throw( ex){
-		if( !this.closing){
+		if( this.closing){
 			return
 		}
 		this.thrown= true
 		this.throwException= ex
 		return this._end( undefined, ex)
 	}
+
+	// TODO: implement AAAGGG UGGGH
+	drain( value){
+		if( this.closing){
+			return
+		}
+		this.draining= true
+		this.drainValue= true
+	}
+
+	/**
+	*/
 	abort( ex){
 		if( this.closing){
 			return
 		}
-		this.aborted= true
-		this.abortException= ex
-
 		if(!( ex instanceof AsyncIterPipeAbortError)){
 			ex= new AsyncIterPipeAbortError( this, ex)
 		}
+		this.aborted= true
+		this.abortException= ex
 
 		// outstanding reads get dropped
 		for( let i= 0; i< this.reads.length; ++i){
@@ -244,13 +256,19 @@ export class AsyncIterPipe{
 			read.reject( ex)
 		}
 		// raise the abort signal
-		this[ _abortSignal].resolve( ex)
+		if( this[ _abortSignal]){
+			this[ _abortSignal].resolve( ex)
+		}
 
 		// delay, then raise the done signal	
-		return delay().then(()=> this._end())
+		return Delay().then(()=> this._end())
 	}
 	get closing(){
-		if( this.returned){
+		if( this.drained){
+			return "drained"
+		}else if( this.draining){
+			return "draining"
+		}else if( this.returned){
 			return "return"
 		}if( this.aborted){
 			return "abort"
