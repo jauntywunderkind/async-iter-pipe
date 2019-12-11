@@ -37,35 +37,3 @@ tape( "push x2 the nnext x2", async function( t){
 	t.deepEqual( await v2, { value: 20, done: false}, "gets 20")
 	t.end()
 })
-
-// so headsup none of the above tests have finished!
-tape( "return", async function( t){
-	t.plan( 1)
-	const pipe= new Pipe()
-
-	// end
-	pipe.return()
-	const end= pipe.next()
-	t.deepEqual( await end, { value: null, done: true}, "got done")
-	t.end()
-})
-tape( "throw", async function( t){
-	t.plan( 1)
-	const pipe= new Pipe()
-
-	// end
-	pipe.return()
-	const end= pipe.next()
-	t.deepEqual( await end, { value: null, done: true}, "got done")
-	t.end()
-})
-tape( "throw", async function( t){
-	t.plan( 1)
-	const pipe= new Pipe()
-
-	// end
-	pipe.return()
-	const end= pipe.next()
-	t.deepEqual( await end, { value: null, done: true}, "got done")
-	t.end()
-})
