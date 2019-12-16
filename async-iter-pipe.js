@@ -9,28 +9,26 @@ export function AsyncIterPipeError( asyncIterPipe, err, msg= "AsyncIterPipeError
 }
 AsyncIterPipeError.prototype = Object.create( Error.prototype)
 AsyncIterPipeError.prototype.constructor = AsyncIterPipeError
-export const PipeError= AsyncIterPipeError
 
 export function AsyncIterPipeAbortError( asyncIterPipe, err, msg= "AsyncIterPipeAbortError"){
 	AsyncIterPipeError.call( asyncIterPipe, err, msg)
 }
 AsyncIterPipeAbortError.prototype = Object.create( AsyncIterPipeError.prototype)
 AsyncIterPipeAbortError.prototype.constructor = AsyncIterPipeAbortError
-export const PipeAbortError= AsyncIterPipeAbortError
 
 export function AsyncIterPipeDoneError( asyncIterPipe, err, msg= "AsyncIterPipeDoneError"){
 	AsyncIterPipeError.call( asyncIterPipe, err, msg)
 }
 AsyncIterPipeDoneError.prototype = Object.create( AsyncIterPipeError.prototype)
 AsyncIterPipeDoneError.prototype.constructor = AsyncIterPipeDoneError
-export const PipeDoneError= AsyncIterPipeDoneError
+
+export {
+	AsyncIterPipeError as PipeError,
+	AsyncIterPipeAbortError as PipeAbortError,
+	AsyncIterPipeDoneError as PipeDoneError
+}
 
 const resolved= Promise.resolve()
-
-// public facing symbols
-export const
-  AsyncIterPipeDrop= Symbol.for( "async-iter-pipe:drop"),
-  Drop= AsyncIterPipeDrop
 
 // internal symbols
 export const
@@ -47,44 +45,48 @@ export const listenerBinding= {
 	once: true
 }
 
-let n= 0
+function _done(){
+	return {
+		done: true,
+		value: undefined
+	}
+}
+
+export const Closing= {
+	"return": 1,
+	"throw": 2,
+	abort: 3,
+	drained: 4,
+	draining: 5,
+}
 
 export class AsyncIterPipe{
-	static DROP = Drop
 	static get [ Symbol.species](){
 		return Promise
+	}
+	static get Closing(){
+		return Closing
 	}
 	static get controllerSignals(){ return controllerSignals}
 	static get listenerBinding(){ return listenerBinding}
 
-	// note: falsy values commented out
-
 	// state
 	done= false
-	value= null
+	value= undefined
 	reads= new Dequeue() // reads from consumers pending new values
 	writes= new Dequeue() // writes from push awaiting readers
 
 	readCount= 0
 	writeCount= 0
 
-	// not valid syntax?
-	//[ _doneSignal]= Defer()
-
 	// mode which is false
 	//strictAsync= false
 
 	constructor( opts){
-		this._push= this._push.bind( this)
+		this.push= this.push.bind( this)
 		if( opts){
 			if( opts.controller){
 				this.signal= opts.controller.signal
-			}
-			//if( opts.pushAfterReturn){
-			//	this.pushAfterReturn= true
-			//}
-			if( opts.tail|| opts.sloppy){
-				this.tail= opts.tail|| null
 			}
 			if( opts.strictAsync){
 				this.strictAsync= true
@@ -95,19 +97,13 @@ export class AsyncIterPipe{
 		}
 	}
 
-	push( ...items){
-		let i= 0
-		while( !this.done&& i< items.length){
-			this._push(items[ i++])
-		}
-	}
-
 	next(){
 		// if we're done nothing more happens
 		if( this.done){
-			return {
-				done: true,
-				value: this.value
+			if( this.draining){
+				return this.draining.then( _done)
+			}else{
+				return _done()
 			}
 		}
 
@@ -115,11 +111,11 @@ export class AsyncIterPipe{
 		++this.readCount
 
 		// use already pushed writes
-		const hadWrites= this.writes&& this.writes.length
+		let hadWrites= this.writes&& this.writes.length
 		if( hadWrites){
 			const
 			  value= this.value= this.writes.shift(),
-			  iter= { value, done: false}
+			  iter= { done: false, value}
 			return this.strictAysync? Promise.resolve( iter): iter
 		}
 
@@ -143,14 +139,16 @@ export class AsyncIterPipe{
 		}
 	}
 
-	_push( value){
+	/**
+	* Resolve a value, then provide it to a pending reade, or queue it as a apending write
+	*/
+	push( value){
 		// first check- still going?
 		if( this.done){
-			return
-		}
+			return t		}
 		// sync-hronize
 		if( value.then){
-			value.then( this._push)
+			value.then( this.push)
 			return
 		}
 		++this.writeCount
@@ -158,87 +156,101 @@ export class AsyncIterPipe{
 		if( this.reads&& this.reads.length> 0){
 			this.value= value
 			const read= this.reads.shift()
-			read.resolve({ value, done: false})
+			read.resolve({ done: false, value})
 
-			let closing
-			if( this.reads.length=== 0&& !!(closing= this.closing)){
-				this.done= true
-				if( this.returned){
-					this.value= this.returnValue
-				}else if( this.thrown){
-					this.value= this.throwException
-				}else if( this.aborted){
-					this.value= this.abortException
+			if( this.draining&& this.reads.length=== 0){
+				if( this.draining.resolve){
+					this.draining.resolve( this)
 				}
 				if( this[ _doneSignal]){
 					this[ _doneSignal].resolve( this)
 				}
 			}
-			return
-		}else{
+		}else if( this.writes){
 			// value is already synchronous, since we've sync-hronized above
 			this.writes.push( value)
+		}else{
+			throw new Error("Cannot push: no read or write")
 		}
 	}
 
-	_end( value, ex){
-		this.done= true
-		this.returnValue= value
-		this.throwException= ex
-
-		// don't return until we really finish
-		if( this.reads&& this.reads.length){
-			return this.thenDone().then(()=> this._end( value, error))
+	_end( opts){
+		let first= true
+		while( this.reads.length){
+			const read= this.reads.shift()
+			read.resolve({ done: true, value: first? this.returnedValue: undefined})
+			first= false
 		}
+		this.writes.empty()
 
+		let abortSignal= this[ _abortSignal]
+		if( abortSignal&& abortSignal.resolve){
+			if( opts&& opts.abort){
+				abortSignal.reject()
+			}else{
+				abortSignal.resolve()
+			}
+		}
 		// we're really finished, so signal as such
-		if( this[ _doneSignal]){
-			this[ _doneSignal].resolve({ value: this.value, done: true})
-		}
-		if( this[ _abortSignal]){
-			// maybe already resolved, but insure it's not dangling
-			this[ _abortsignal].reject()
-		}
-		return {
-			done: true,
-			value: value|| ex
+		let doneSignal= this[ _doneSignal]
+		if( doneSignal&& doneSignal.resolve){
+			doneSignal.resolve({ done, value: this.returnedValue})
 		}
 	}
 
 	/**
-	* Stop allowing push, and stop returning already pushd values.
-	* If 'pushAfterReturn' mode is set, push will continue to fulfill already issues reads.
+	* Resolve done any outstanding reads, become done
 	*/
 	return( value){
 		if( this.closing){
 			return 
 		}
-		this.returned= true
-		this.returnValue= value
-		return this._end( value)
+		this.done= true
+		this.closing= Closing.return
+		this.returnedValue= value
+		this._end()
+		return Promise.resolve({ done: true, value})
 	}
 	/**
-	* Immediately become done and reject any pending reads.
+	* Resolve done any outstanding reads, become done, and throw
 	*/
 	throw( ex){
 		if( this.closing){
 			return
 		}
-		this.thrown= true
-		this.throwException= ex
-		return this._end( undefined, ex)
+		this.done= true
+		this.closing= Closing.throw
+		this.thrownException= ex
+		this._end()
+		return Promise.reject( ex)
 	}
-
-	// TODO: implement AAAGGG UGGGH
+	/**
+	* Continue to allow pushes, and do not signal done until 
+	*/
 	drain( value){
 		if( this.closing){
 			return
 		}
-		this.draining= true
-		this.drainValue= true
+		this.done= true
+		this.drainedValue= value
+		if( this.reads.length=== 0){
+			// no pending reads to fulfill, so close now
+			this.closing= Closing.drain
+			this._end()
+			return Promise.resolve()
+		}else{
+			this.closing= Closing.draining
+			this.draining= Defer()
+			this.draining.promise= this.draining.promise.then(()=> {
+				this.closing= Closing.drain
+				delete this.draining
+				this._end()
+			})
+			return this.draining.promise
+		}
 	}
-
 	/**
+	* Throw an abort to any outstanding reads, delay, & become done
 	*/
 	abort( ex){
 		if( this.closing){
@@ -247,65 +259,56 @@ export class AsyncIterPipe{
 		if(!( ex instanceof AsyncIterPipeAbortError)){
 			ex= new AsyncIterPipeAbortError( this, ex)
 		}
+		this.done= true
 		this.aborted= true
-		this.abortException= ex
+		this.abortedException= ex
 
-		// outstanding reads get dropped
-		for( let i= 0; i< this.reads.length; ++i){
-			let read= this.reads[ i]
+		// outstanding reads get thrown
+		while( this.reads.length){
+			const read= this.reads.shift()
 			read.reject( ex)
 		}
-		// raise the abort signal
-		if( this[ _abortSignal]){
-			this[ _abortSignal].resolve( ex)
-		}
-
-		// delay, then raise the done signal	
-		return Delay().then(()=> this._end())
-	}
-	get closing(){
-		if( this.drained){
-			return "drained"
-		}else if( this.draining){
-			return "draining"
-		}else if( this.returned){
-			return "return"
-		}if( this.aborted){
-			return "abort"
-		}else if( this.thrown){
-			return "throw"
-		}
+		this._end()
 	}
 
-	[ Symbol.iterator](){
-		return this
-	}
 	[ Symbol.asyncIterator](){
 		return this
 	}
 
 	// signal for when everything finishes
 	thenDone( ok, fail){
-		if( !this[ _doneSignal]){
-			this[ _doneSignal]= Defer()
+		let doneSignal= this[ _doneSignal]
+		if( !doneSignal){
+			if( this.done){
+				doneSignal= { promise: Promise.resolve( this)}
+			}else{
+				doneSignal= Defer()
+			}
+			this[ _doneSignal]= doneSignal
 		}
 		if( ok|| fail){
-			return this[ _doneSignal].promise.then( ok, fail)
+			return doneSignal.promise.then( ok, fail)
 		}
-		return this[ _doneSignal].promise
+		return doneSignal.promise
 	}
 	// signal for abort
 	thenAborted( ok, fail){
-		if( !this[ _abortSignal]){
-			this[ _abortSignal]= Defer()
+		let abortSignal= this[ _abortSignal]
+		if( !abortSignal){
+			if( this.aborted){
+				abortSignal= { promise: Promise.resolve( this)}
+			}else if( this.done){
+				abortSignal= { promise: Promise.reject( this)}
+			}else{
+				abortSignal= Defer()
+			}
+			this[ _abortSignal]= abortSignal
 		}
 		if( ok|| fail){
-			return this[ _abortSignal].promise.then( ok, fail)
+			return abortSignal.promise.then( ok, fail)
 		}
-		return this[ _abortSignal].promise
+		return abortSignal.promise
 	}
-
-
 	get controller(){
 		return this[ _controller]
 	}
@@ -346,8 +349,5 @@ export {
 	AsyncIterPipe as default,
 	AsyncIterPipe as asyncIterPipe,
 	AsyncIterPipe as Pipe,
-	AsyncIterPipe as pipe,
-	AsyncIterPipeAbortError as asyncIterPipeAbortError,
-	AsyncIterPipeAbortError as AbortException,
-	AsyncIterPipeAbortError as abortException
+	AsyncIterPipe as pipe
 }
