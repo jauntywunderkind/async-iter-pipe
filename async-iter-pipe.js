@@ -255,7 +255,7 @@ export class AsyncIterPipe{
 			ex= new AsyncIterPipeAbortError( this, ex)
 		}
 		this.done= true
-		this.aborted= true
+		this.closing= Closing.abort
 		this.abortedException= ex
 
 		// outstanding reads get thrown
@@ -274,7 +274,7 @@ export class AsyncIterPipe{
 	thenDone( ok, fail){
 		let doneSignal= this[ _doneSignal]
 		if( !doneSignal){
-			if( this.aborted){
+			if( this.closing=== Closing.abort){
 				doneSignal= { promise: Promise.reject( this.abortedException)}
 			}else if( this.done){
 				doneSignal= { promise: Promise.resolve()}
