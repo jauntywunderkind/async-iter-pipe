@@ -1,6 +1,5 @@
 "use module"
 import Defer from "p-defer"
-import Delay from "delay"
 import Dequeue from "dequeue"
 
 export function AsyncIterPipeError( asyncIterPipe, err, msg= "AsyncIterPipeError"){

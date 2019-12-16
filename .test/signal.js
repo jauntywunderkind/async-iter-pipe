@@ -18,7 +18,6 @@ tape( "thenDone-promise then return", async function( t){
 	t.equal( empty, undefined, "became done")
 	t.end()
 })
-
 tape( "thenDone-then then return", async function( t){
 	t.plan( 2)
 	const
