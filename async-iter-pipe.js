@@ -33,8 +33,7 @@ const resolved= Promise.resolve()
 // internal symbols
 export const
 	_controller= Symbol.for( "async-iter-pipe:_controller"),
-	_doneSignal= Symbol.for( "async-iter-pipe:_doneSignal"),
-	_abortSignal= Symbol.for( "async-iter-pipe:_abortSignal")
+	_doneSignal= Symbol.for( "async-iter-pipe:_doneSignal")
 
 export const controllerSignals= [
 	{name: "abort", test: "aborted"}
@@ -160,10 +159,10 @@ export class AsyncIterPipe{
 
 			if( this.draining&& this.reads.length=== 0){
 				if( this.draining.resolve){
-					this.draining.resolve( this)
+					this.draining.resolve()
 				}
 				if( this[ _doneSignal]){
-					this[ _doneSignal].resolve( this)
+					this[ _doneSignal].resolve()
 				}
 			}
 		}else if( this.writes){
@@ -183,18 +182,14 @@ export class AsyncIterPipe{
 		}
 		this.writes.empty()
 
-		let abortSignal= this[ _abortSignal]
-		if( abortSignal&& abortSignal.resolve){
-			if( opts&& opts.abort){
-				abortSignal.reject( opts.abort)
-			}else{
-				abortSignal.resolve()
-			}
-		}
 		// we're really finished, so signal as such
 		let doneSignal= this[ _doneSignal]
 		if( doneSignal&& doneSignal.resolve){
-			doneSignal.resolve()
+			if( opts&& opts.abort){
+				doneSignal.reject( opts.abort)
+			}else{
+				doneSignal.resolve()
+			}
 		}
 	}
 
@@ -280,7 +275,7 @@ export class AsyncIterPipe{
 		let doneSignal= this[ _doneSignal]
 		if( !doneSignal){
 			if( this.done){
-				doneSignal= { promise: Promise.resolve( this)}
+				doneSignal= { promise: Promise.resolve()}
 			}else{
 				doneSignal= Defer()
 			}
@@ -290,24 +285,6 @@ export class AsyncIterPipe{
 			return doneSignal.promise.then( ok, fail)
 		}
 		return doneSignal.promise
-	}
-	// signal for abort
-	thenAborted( ok, fail){
-		let abortSignal= this[ _abortSignal]
-		if( !abortSignal){
-			if( this.aborted){
-				abortSignal= { promise: Promise.resolve( this)}
-			}else if( this.done){
-				abortSignal= { promise: Promise.reject( this)}
-			}else{
-				abortSignal= Defer()
-			}
-			this[ _abortSignal]= abortSignal
-		}
-		if( ok|| fail){
-			return abortSignal.promise.then( ok, fail)
-		}
-		return abortSignal.promise
 	}
 	get controller(){
 		return this[ _controller]

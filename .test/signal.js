@@ -6,34 +6,51 @@
 import tape from "tape"
 import Pipe, { PipeAbortError} from "../async-iter-pipe.js"
 
+// thenDone can be called with or without handlers, returning a promise either way
+// thenDone should work whether it is used before or after becoming done
 tape( "thenDone-promise then return", async function( t){
 	t.plan( 1)
 	const
 	  pipe= new Pipe(),
-	  done= pipe.thenDone
+	  done= pipe.thenDone()
 	pipe.return()
-	await done
-	t.pass( "became done")
+	const empty= await done
+	t.equal( empty, undefined, "became done")
 	t.end()
 })
 
 tape( "thenDone-then then return", async function( t){
-	t.plan( 1)
+	t.plan( 2)
 	const
 	  pipe= new Pipe(),
-	  done= pipe.thenDone( function(){
-		t.pass( "done")
-		t.end()
+	  done= pipe.thenDone( function( empty){
+		t.equal( empty, undefined, "handler called")
+		return "ping"
 	  })
 	pipe.return()
+	t.equal( await done, "ping", "handler returned ping")
+	t.end()
 })
-
-tape( "return then thenDone", async function( t){
+tape( "return then thenDone-promise", async function( t){
 	t.plan( 1)
 	const pipe= new Pipe()
 	pipe.return()
-	await pipe.thenDone
-	t.pass( "became done")
+	const empty= await pipe.thenDone()
+	t.equal( empty, undefined, "became done")
+	t.end()
+})
+tape( "return then thenDone-then", async function( t){
+	t.plan( 2)
+	const pipe= new Pipe()
+	pipe.return()
+	const done= pipe.thenDone( function( empty){
+		t.equal( empty, undefined, "became done")
+		return "ping"
+	})
+	t.equal( await done, "ping", "handler returned ping")
 	t.end()
 })
 
+tape( "thenDone throws on abort", async function( t){
+	t.end()
+})
