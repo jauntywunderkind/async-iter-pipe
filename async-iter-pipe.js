@@ -268,7 +268,7 @@ export class AsyncIterPipe{
 			const read= this.reads.shift()
 			read.reject( ex)
 		}
-		this._end()
+		this._end({ abort: ex})
 	}
 
 	[ Symbol.asyncIterator](){
