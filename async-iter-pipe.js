@@ -186,7 +186,7 @@ export class AsyncIterPipe{
 		let abortSignal= this[ _abortSignal]
 		if( abortSignal&& abortSignal.resolve){
 			if( opts&& opts.abort){
-				abortSignal.reject()
+				abortSignal.reject( opts.abort)
 			}else{
 				abortSignal.resolve()
 			}
@@ -194,7 +194,7 @@ export class AsyncIterPipe{
 		// we're really finished, so signal as such
 		let doneSignal= this[ _doneSignal]
 		if( doneSignal&& doneSignal.resolve){
-			doneSignal.resolve({ done, value: this.returnedValue})
+			doneSignal.resolve()
 		}
 	}
 
