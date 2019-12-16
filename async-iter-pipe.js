@@ -274,7 +274,9 @@ export class AsyncIterPipe{
 	thenDone( ok, fail){
 		let doneSignal= this[ _doneSignal]
 		if( !doneSignal){
-			if( this.done){
+			if( this.aborted){
+				doneSignal= { promise: Promise.reject( this.abortedException)}
+			}else if( this.done){
 				doneSignal= { promise: Promise.resolve()}
 			}else{
 				doneSignal= Defer()

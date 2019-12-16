@@ -51,6 +51,25 @@ tape( "return then thenDone-then", async function( t){
 	t.end()
 })
 
+tape( "thenDone throws after abort", async function( t){
+	t.plan( 1)
+	const pipe= new Pipe()
+	pipe.abort()
+	const done= pipe.thenDone( function(){
+		t.fail( "should have thrown")
+	}, function( ex){
+		t.ok( ex instanceof PipeAbortError, "got an abort")
+		t.end()
+	})
+})
 tape( "thenDone throws on abort", async function( t){
-	t.end()
+	t.plan( 1)
+	const pipe= new Pipe()
+	const done= pipe.thenDone( function(){
+		t.fail( "should have thrown")
+	}, function( ex){
+		t.ok( ex instanceof PipeAbortError, "got an abort")
+		t.end()
+	})
+	pipe.abort()
 })
