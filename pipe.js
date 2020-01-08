@@ -172,6 +172,28 @@ export class AsyncIterPipe{
 		}
 	}
 
+	pull( iterable){
+		const done= false
+		// user can end with cancel
+		function cancel(){
+			done= true
+		}
+		// or pipe can go done
+		this.doneSignal.then( function(){ done= true})
+
+		// start read loop
+		const loop= (async()=> {
+			for await( let i of iterable){
+				if( done){
+					return
+				}
+				this.push( i)
+			}
+		})()
+		loop.cancel= cancel
+		return loop
+	}
+
 	_end( opts){
 		let first= true
 		while( this.reads.length){
