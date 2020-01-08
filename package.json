@@ -1,6 +1,6 @@
 {
 	"name": "async-iter-pipe",
-	"version": "1.0.2",
+	"version": "1.0.3",
 	"description": "an manually fed async-iterator that can queue reads or writes",
 	"main": "pipe.js",
 	"modules": "pipe.js",
@@ -19,7 +19,7 @@
 		"tape": "^4.11.0"
 	},
 	"dependencies": {
-		"deqeueue": "^1.0.5",
+		"dequeue": "^1.0.5",
 		"p-defer": "^3.0.0"
 	},
 	"type": "module"
