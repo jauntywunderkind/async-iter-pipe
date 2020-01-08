@@ -2,8 +2,8 @@
 	"name": "async-iter-pipe",
 	"version": "1.0.2",
 	"description": "an manually fed async-iterator that can queue reads or writes",
-	"main": "async-iter-pipe.js",
-	"modules": "async-iter-pipe.js",
+	"main": "pipe.js",
+	"modules": "pipe.js",
 	"scripts": {
 		"test": "node .test/index.js"
 	},
