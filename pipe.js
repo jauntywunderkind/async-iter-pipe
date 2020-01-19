@@ -143,7 +143,8 @@ export class AsyncIterPipe{
 	push( value){
 		// first check- still going?
 		if( this.done){
-			return t		}
+			return t
+		}
 		// sync-hronize
 		if( value.then){
 			value.then( this.push)
@@ -173,7 +174,7 @@ export class AsyncIterPipe{
 	}
 
 	pull( iterable){
-		const done= false
+		let done= false
 		// user can end with cancel
 		function cancel(){
 			done= true
@@ -265,6 +266,15 @@ export class AsyncIterPipe{
 			return this.draining.promise
 		}
 	}
+
+	/**
+	* whether pushed values are accepted
+	*/
+	get accepting(){
+		const closing= this.closing
+		return !closing|| closing=== Closing.drain
+	}
+
 	/**
 	* Throw an abort to any outstanding reads, delay, & become done
 	*/
