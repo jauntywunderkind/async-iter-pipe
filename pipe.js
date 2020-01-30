@@ -162,7 +162,7 @@ function push( value){
 		return t
 	}
 	// sync-hronize
-	if( value.then){
+	if( value&& value.then){
 		value.then( this.push)
 		return
 	}
